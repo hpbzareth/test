@@ -1,70 +1,70 @@
-# Hướng Dẫn Cài Đặt Custom Kernel Cho Mọi Phiên Bản WSA (Universal Guide)
+# Universal Custom Kernel Guide for Windows Subsystem for Android (WSA)
 
-Tài liệu này hướng dẫn chi tiết cách cài đặt hoặc thay thế Custom Kernel (KernelSU, KernelSU-Next, SuSFS, Kprobes...) cho **Windows Subsystem for Android (WSA)** áp dụng cho **mọi phiên bản WSA**, **mọi kiến trúc (x86_64 / ARM64)** và **mọi phương thức cài đặt** (Cài qua Windows Store, qua MSIX hoặc qua các bản giải nén Unbundled / WSABuilds / MagiskOnWSA).
+Tài liệu hướng dẫn toàn diện (Universal) về cách cài đặt, thay thế và tự build Custom Kernel (**KernelSU, KernelSU-Next, Built-in SuSFS**) cho **mọi phiên bản WSA** (Kernel 5.10 và Kernel 5.15) trên cả 2 kiến trúc **x86_64** và **ARM64**.
 
 ---
 
-## 1. Xác định phiên bản & Kiến trúc
+## 1. Bảng đối chiếu các phiên bản WSA & Kernel
 
-Trước khi thay kernel, bạn cần biết WSA trên máy mình đang sử dụng kiến trúc và phiên bản kernel nào:
+Trước khi thay kernel, bạn cần kiểm tra máy ảo WSA trên máy bạn thuộc thế hệ nào:
 
-1. **Khởi động WSA** và mở PowerShell, chạy:
-   ```powershell
-   adb connect 127.0.0.1:58526
-   adb shell uname -m
-   adb shell uname -r
-   ```
-2. **Đối chiếu:**
-   * **Kiến trúc (`uname -m`):**
-     * `x86_64` (máy tính chip Intel / AMD): File kernel build ra là `bzImage`.
-     * `aarch64` (máy tính Windows on ARM như Snapdragon): File kernel build ra là `Image`.
-   * **Phiên bản Kernel (`uname -r`):**
-     * `5.15.x`: Dành cho các bản WSA Android 13 (WSA v2211 trở lên, ví dụ 23xx, 24xx).
-     * `5.10.x`: Dành cho các bản WSA Android 12.1 hoặc cũ hơn.
+```powershell
+adb connect 127.0.0.1:58526
+adb shell uname -r
+adb shell uname -m
+```
+
+| Thế hệ WSA | Android Version | Linux Kernel | Cấu hình nguồn Microsoft | File nhị phân đích |
+| :--- | :--- | :--- | :--- | :--- |
+| **WSA 2211 – 2407** *(Phổ biến nhất)* | **Android 13** | **5.15.x** (`android-lts/latte-2/5.15.104.4`) | `configs/wsa/config-wsa-x64` | `Tools/kernel` |
+| **WSA 2204 – 2206** | **Android 12.1 / 12L** | **5.10.x** (`android-lts/latte/5.10.136.2`) | `configs/wsa/config-wsa-5.10` | `Tools/kernel` |
+| **WSA 2110 – 2203** | **Android 11** | **5.10.x** (`android-lts/latte/5.10.117.x`) | `configs/wsa/config-wsa-5.10` | `Tools/kernel` |
+
+* **Kiến trúc:**
+  * **x86_64** (Intel / AMD): Kernel compile ra là file `bzImage`.
+  * **ARM64** (Windows on ARM / Qualcomm Snapdragon): Kernel compile ra là file `Image`.
 
 ---
 
 ## 2. Tìm thư mục cài đặt WSA trên máy của bạn
 
-Tùy vào cách bạn cài đặt WSA, đường dẫn sẽ rơi vào một trong hai dạng sau:
+Tùy vào phương pháp bạn cài đặt WSA, vị trí file `kernel` sẽ nằm ở một trong hai nơi:
 
-### Dạng 1: Cài đặt từ gói giải nén (Unbundled / WSABuilds / MagiskOnWSA)
-* Thư mục là nơi bạn đã giải nén file ZIP lúc cài (ví dụ: `C:\WSA`, `D:\Android\WSA_2407...`).
+### Dạng 1: Bản giải nén (Unbundled / WSABuilds / MagiskOnWSA)
+* Thư mục là nơi bạn đã giải nén (ví dụ: `C:\WSA`, `D:\WSA_2407...`).
 * File kernel nằm tại: `<Thư_mục_WSA>\Tools\kernel`.
 
-### Dạng 2: Cài đặt qua Store hoặc Add-AppxPackage (MSIX Bundle)
-Chạy lệnh PowerShell sau để hệ thống tự in ra chính xác thư mục cài đặt WSA trên máy bạn:
+### Dạng 2: Bản cài qua Microsoft Store hoặc MSIX Bundle
+Chạy lệnh PowerShell sau để lấy chính xác đường dẫn thư mục cài đặt:
 ```powershell
 (Get-AppxPackage -Name "*WindowsSubsystemForAndroid*").InstallLocation
 ```
-*(Đường dẫn thông thường: `C:\Program Files\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForAndroid_<version>...`)*
 
 ---
 
-## 3. Cách 1: Thay Kernel tự động bằng Script PowerShell (Khuyên dùng)
+## 3. Cách 1: Thay Kernel tự động bằng PowerShell Script (1-Click)
 
-Lưu lại hoặc copy đoạn script sau vào PowerShell (chạy dưới quyền **Administrator**). Script sẽ **tự động dò tìm thư mục WSA, tắt tiến trình an toàn, sao lưu kernel cũ và chép kernel mới**:
+Chạy script sau trong PowerShell dưới quyền **Administrator**:
 
 ```powershell
-# 1. Nhập đường dẫn file bzImage / Image mới bạn vừa tải về
-$NewKernelPath = "C:\path\to\bzImage"   # <-- SỬA ĐƯỜNG DẪN NÀY
+# 1. Điền đường dẫn file kernel bạn vừa tải về từ GitHub Release
+$NewKernelPath = "C:\path\to\kernel"   # <-- Sửa đường dẫn này
 
 # 2. Tự động xác định thư mục WSA
 $WsaApp = Get-AppxPackage -Name "*WindowsSubsystemForAndroid*"
 if ($WsaApp) {
     $WsaDir = $WsaApp.InstallLocation
 } else {
-    # Nếu không tìm thấy qua Appx, hãy chỉ định thư mục giải nén của bạn
-    $WsaDir = "C:\WSA"   # <-- Thay đổi nếu bạn dùng bản giải nén
+    $WsaDir = "C:\WSA_2407.40000.4.0_x64"   # <-- Điền thư mục giải nén nếu dùng Unbundled
 }
 
 $KernelTarget = Join-Path $WsaDir "Tools\kernel"
 $KernelBackup = Join-Path $WsaDir "Tools\kernel.bak"
 
-Write-Host "[+] Thư mục WSA: $WsaDir" -ForegroundColor Cyan
-Write-Host "[+] Vị trí Kernel: $KernelTarget" -ForegroundColor Cyan
+Write-Host "[+] WSA Directory: $WsaDir" -ForegroundColor Cyan
+Write-Host "[+] Kernel Target: $KernelTarget" -ForegroundColor Cyan
 
-# 3. Tắt hoàn toàn WSA
+# 3. Tắt sạch hoàn toàn WSA
 Write-Host "[*] Đang tắt WSA..." -ForegroundColor Yellow
 $WsaClient = Join-Path $WsaDir "WsaClient.exe"
 if (Test-Path $WsaClient) {
@@ -72,87 +72,61 @@ if (Test-Path $WsaClient) {
 }
 taskkill /f /im WsaClient.exe 2>$null
 taskkill /f /im WsaService.exe 2>$null
-
-# Đợi máy ảo vmmemWSA tắt hẳn
 Start-Sleep -Seconds 3
 
-# 4. Sao lưu Kernel cũ (nếu chưa có bản sao lưu)
+# 4. Sao lưu bản cũ nếu chưa có
 if (-not (Test-Path $KernelBackup)) {
-    Write-Host "[*] Đang tạo bản sao lưu kernel.bak..." -ForegroundColor Green
+    Write-Host "[+] Tạo bản sao lưu kernel.bak..." -ForegroundColor Green
     Copy-Item $KernelTarget $KernelBackup -Force
 }
 
-# 5. Thay thế Kernel mới
-Write-Host "[*] Đang cài đặt Kernel mới..." -ForegroundColor Green
+# 5. Thay kernel mới
+Write-Host "[+] Cài đặt kernel mới..." -ForegroundColor Green
 Copy-Item $NewKernelPath $KernelTarget -Force
 
-Write-Host "[✓] Hoàn tất! Hãy khởi động lại WSA để áp dụng." -ForegroundColor Green
+Write-Host "[✓] Hoàn tất! Hãy mở lại WSA để trải nghiệm." -ForegroundColor Green
 ```
 
 ---
 
-## 4. Cách 2: Thay Kernel thủ công (Từng bước)
+## 4. Cách 2: Thay Kernel thủ công từng bước
 
-Nếu bạn muốn thao tác bằng tay:
-
-1. **Chuẩn bị:** Đổi tên file kernel vừa build/tải về (`bzImage` hoặc `Image`) thành tên là **`kernel`** (không có đuôi file).
-2. **Tắt hoàn toàn WSA:**
-   * Mở ứng dụng **WSA Settings** > mục **System** > chọn **Turn off**.
-   * Đảm bảo tiến trình `vmmemWSA` trong Task Manager đã tắt hoàn toàn.
-3. **Sao lưu:**
-   * Vào thư mục `<Thư_mục_WSA>\Tools\`.
-   * Copy file `kernel` thành `kernel.bak`.
-4. **Thay thế:**
-   * Dán đè file `kernel` mới vào thư mục `<Thư_mục_WSA>\Tools\`.
-5. **Khởi động lại:**
-   * Mở lại bất kỳ app Android nào hoặc chạy `WsaSettings.exe`.
-
-> [!NOTE]
-> **Đối với người dùng cài WSA qua WindowsApps:**
-> Thư mục `C:\Program Files\WindowsApps` mặc định bị Windows khóa quyền sửa đổi. Nếu gặp lỗi *Access Denied*, bạn cần cấp quyền chỉnh sửa cho tài khoản của mình bằng lệnh:
-> ```powershell
-> takeown /f "<Thư_mục_WSA>\Tools" /r /d y
-> icacls "<Thư_mục_WSA>\Tools" /grant administrators:F /t
-> ```
+1. **Đổi tên:** Đổi tên file kernel bạn vừa tải về từ tab **Releases** thành tên là **`kernel`** (không có đuôi file).
+2. **Tắt WSA:** Vào **WSA Settings** > **System** > chọn **Turn off** (hoặc chạy lệnh `WsaClient.exe /shutdown`).
+3. **Sao lưu:** Vào `<Thư_mục_WSA>\Tools\`, copy file `kernel` thành `kernel.bak`.
+4. **Dán đè:** Copy file `kernel` mới vào `<Thư_mục_WSA>\Tools\kernel`.
+5. **Khởi động:** Mở lại WSA Settings hoặc bất kỳ ứng dụng Android nào.
 
 ---
 
-## 5. Xác minh hoạt động & Quản lý Root
+## 5. Cài đặt Manager APK & Kiểm tra quyền Root / SuSFS
 
-1. **Kiểm tra thông tin kernel đã nạp:**
-   ```powershell
-   adb connect 127.0.0.1:58526
-   adb shell uname -a
-   ```
-   Xem tên phiên bản hiển thị đúng tên build của bạn hay chưa.
+Tùy vào bản Kernel bạn chọn sử dụng trong tab **Releases**:
 
-2. **Cài đặt Manager tương ứng:**
-   * **KernelSU-Next:** Tải APK từ [KernelSU-Next Releases](https://github.com/KernelSU-Next/KernelSU-Next/releases).
-   * **KernelSU chuẩn:** Tải APK từ [KernelSU Releases](https://github.com/tiann/KernelSU/releases).
-   * Cài đặt vào WSA:
-     ```powershell
-     adb install <ten_file_manager>.apk
-     ```
-3. **Kiểm tra quyền Root:**
-   Mở ứng dụng Manager đã cài trên WSA:
-   * Trạng thái báo: **Đang hoạt động (Working / Built-in GKI2)**.
-   * Chạy lệnh kiểm tra root qua terminal:
-     ```powershell
-     adb shell su -c id
-     ```
-     Kết quả trả về `uid=0(root) gid=0(root)` chứng tỏ hệ thống đã root thành công.
+* **Nếu dùng bản `kernel-5.15-susfs` (Built-in SuSFS):**
+  * Tích hợp sẵn mã nguồn SuSFS v2.4.0 in-tree trong nhân Linux.
+  * Cài đặt **KernelSU Manager** hoặc **KernelSU-Next Manager**:
+    ```powershell
+    adb install KernelSU_Manager.apk
+    ```
+  * Mở app Manager: Trạng thái sẽ báo **Đang hoạt động (Built-in)** và hiển thị phiên bản **SuSFS: v2.4.0**.
+  * Chạy lệnh kiểm tra:
+    ```powershell
+    adb shell su -c id
+    ```
+    Kết quả trả về `uid=0(root) gid=0(root)` là hệ thống đã hoạt động hoàn hảo.
+
+* **Nếu dùng bản `kernel-5.15-ksunext` (KernelSU-Next v3.4.2):**
+  * Cài đặt [KernelSU-Next Manager APK](https://github.com/KernelSU-Next/KernelSU-Next/releases).
+  * Mở app, trạng thái báo **Đang hoạt động (BUILT-IN (GKI2))**.
 
 ---
 
-## 6. Khôi phục (Rollback) khi gặp lỗi
+## 6. Khôi phục nhanh (Rollback)
 
-Nếu kernel mới không tương thích khiến WSA không thể khởi động hoặc bị crash:
-1. Tắt tiến trình:
-   ```powershell
-   taskkill /f /im WsaClient.exe 2>$null
-   ```
-2. Đổi tên `kernel.bak` trở lại thành `kernel`:
-   ```powershell
-   Move-Item -Force "<Thư_mục_WSA>\Tools\kernel.bak" "<Thư_mục_WSA>\Tools\kernel"
-   ```
-3. Khởi động lại WSA bình thường.
+Nếu kernel mới gặp lỗi không tương thích:
+```powershell
+taskkill /f /im WsaClient.exe 2>$null
+Move-Item -Force "<Thư_mục_WSA>\Tools\kernel.bak" "<Thư_mục_WSA>\Tools\kernel"
+```
+Mở lại WSA, hệ thống sẽ khôi phục lại trạng thái ban đầu ngay lập tức.
