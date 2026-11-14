@@ -1,0 +1,62 @@
+name: Build WSA Kernel with KernelSU-Next
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_branch:
+        description: 'WSA Kernel Branch'
+        required: true
+        default: 'android-lts/latte-2/5.15.y'
+      ksunext_branch:
+        description: 'KernelSU-Next Branch'
+        required: true
+        default: 'next'
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential flex bison libssl-dev libelf-dev dwarves bc cpio python3 git curl clang lld llvm
+
+      - name: Clone Microsoft WSA Linux Kernel
+        run: |
+          git clone --depth=1 -b "${{ github.event.inputs.kernel_branch }}" https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
+
+      - name: Setup Kernel Config & Integrate KernelSU-Next
+        working-directory: wsa-kernel
+        run: |
+          if [ -f "Microsoft/config-wsa" ]; then
+            cp Microsoft/config-wsa .config
+          elif [ -f "arch/x86/configs/wsa_defconfig" ]; then
+            make LLVM=1 wsa_defconfig
+          else
+            echo "Không tìm thấy file config WSA!" && exit 1
+          fi
+
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ github.event.inputs.ksunext_branch }}"
+
+          scripts/config --enable CONFIG_KPROBES
+          scripts/config --enable CONFIG_HAVE_KPROBES
+          scripts/config --enable CONFIG_KPROBE_EVENTS
+          scripts/config --enable CONFIG_OVERLAY_FS
+          scripts/config --enable CONFIG_KSU
+
+          make LLVM=1 olddefconfig
+
+      - name: Compile bzImage
+        working-directory: wsa-kernel
+        run: |
+          make LLVM=1 -j"$(nproc)" bzImage
+          mkdir -p ../output
+          cp arch/x86/boot/bzImage ../output/kernel
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSA-KernelSU-Next-kernel
+          path: output/kernel
+          retention-days: 14
