@@ -1,10 +1,13 @@
 name: Build WSA Kernel with KernelSU-Next
 
 on:
+  push:
+    paths:
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       kernel_branch:
-        description: 'WSA Kernel Branch (để auto để lấy nhánh 5.15 mới nhất)'
+        description: 'WSA Kernel Branch (để auto để lấy nhánh mặc định)'
         required: true
         default: 'auto'
       ksunext_branch:
@@ -24,8 +27,8 @@ jobs:
 
       - name: Clone Microsoft WSA Linux Kernel
         run: |
-          BRANCH="${{ github.event.inputs.kernel_branch }}"
-          if [ -z "$BRANCH" ] || [ "$BRANCH" = "auto" ]; then
+          BRANCH="${{ github.event.inputs.kernel_branch || 'auto' }}"
+          if [ "$BRANCH" = "auto" ]; then
             git clone --depth=1 https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
           else
             git clone --depth=1 -b "$BRANCH" https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
@@ -35,31 +38,40 @@ jobs:
       - name: Setup Kernel Config & Integrate KernelSU-Next
         working-directory: wsa-kernel
         run: |
-          if [ -f "Microsoft/config-wsa-x86_64" ]; then
-            cp Microsoft/config-wsa-x86_64 .config
+          # Nạp base GKI defconfig của WSA
+          if [ -f "arch/x86/configs/gki_defconfig" ]; then
+            cp arch/x86/configs/gki_defconfig .config
           else
-            FOUND_CFG=$(find Microsoft arch/x86/configs -maxdepth 2 -type f -name "*wsa*x86*" 2>/dev/null | head -n 1)
-            if [ -n "$FOUND_CFG" ]; then
-              echo "Loaded config: $FOUND_CFG"
-              cp "$FOUND_CFG" .config
-            else
-              echo "Không tìm thấy config WSA. Danh sách file hiện có:"
-              ls -la Microsoft/ arch/x86/configs/ 2>/dev/null || true
-              exit 1
-            fi
+            cp arch/x86/configs/x86_64_defconfig .config
           fi
 
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ github.event.inputs.ksunext_branch }}"
+          # Tự động merge thêm fragment config của WSA/Hyper-V nếu có trong repo
+          FRAGMENTS=$(find . -maxdepth 4 -type f \( -iname "*wsa*.config" -o -iname "*hyperv*.config" \) 2>/dev/null || true)
+          if [ -n "$FRAGMENTS" ]; then
+            echo "Merging fragments: $FRAGMENTS"
+            ./scripts/kconfig/merge_config.sh -m .config $FRAGMENTS
+          fi
 
+          # Tích hợp KernelSU-Next
+          KSU_BRANCH="${{ github.event.inputs.ksunext_branch || 'next' }}"
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_BRANCH"
+
+          # Bật KSU, KPROBES, Hyper-V/DXGKRNL và tắt WERROR/LTO để tránh lỗi compile
           scripts/config --disable CONFIG_WERROR
+          scripts/config --disable CONFIG_LTO_CLANG_FULL
+          scripts/config --disable CONFIG_LTO_CLANG_THIN
+          scripts/config --enable CONFIG_LTO_NONE
           scripts/config --enable CONFIG_KPROBES
           scripts/config --enable CONFIG_HAVE_KPROBES
           scripts/config --enable CONFIG_KPROBE_EVENTS
           scripts/config --enable CONFIG_OVERLAY_FS
+          scripts/config --enable CONFIG_HYPERV
+          scripts/config --enable CONFIG_HYPERV_VMBUS
+          scripts/config --enable CONFIG_DXGKRNL
           scripts/config --enable CONFIG_KSU
 
           make LLVM=1 olddefconfig
-          grep -E "CONFIG_KSU=|CONFIG_KPROBES=" .config
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_DXGKRNL=" .config
 
       - name: Compile bzImage
         working-directory: wsa-kernel
