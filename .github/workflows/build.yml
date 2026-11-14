@@ -65,7 +65,7 @@ jobs:
           patch -p1 --forward < ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
           cd ..
 
-          # 5. Fix WSA-specific compatibility (header gates, fanotify, compat.h, preinit)
+          # 5. Fix WSA-specific compatibility (header gates, fanotify, compat.h, preinit, uapi 5)
           echo "=== Applying WSA compatibility fixes for SuSFS ==="
           python3 ../patch_wsa.py
 
@@ -150,28 +150,10 @@ jobs:
           path: output/ksu_module_susfs.zip
           retention-days: 14
 
-      - name: Create GitHub Release (Revision 1)
+      - name: Update GitHub Release (Revision 1)
         run: |
           TAG_NAME="r1"
           RELEASE_TITLE="Revision 1"
-
-          cat << 'EOF' > release_body.md
-          ## Windows Subsystem for Android (WSA) Custom Kernels - Revision 1
-
-          Bản phát hành chính thức các kernel tùy chỉnh cho **Windows Subsystem for Android (WSA)** (x86_64).
-
-          ### 📦 Các bản Kernel bao gồm trong bản phát hành:
-          * **`kernel-5.15-susfs`** (hoặc file `kernel`): Kernel WSA Linux 5.15.104.4 tích hợp sẵn **KernelSU + Built-in SuSFS (v2.4.0)** trực tiếp trong nhân.
-          * **`kernel-5.15-ksunext-v3.4.2`**: Kernel WSA Linux 5.15.104.4 tích hợp **KernelSU-Next v3.4.2** chuẩn.
-          * **`ksu_module_susfs.zip`**: Module companion SuSFS cho người dùng.
-
-          ### 🚀 Hướng dẫn cài đặt nhanh:
-          1. Đổi tên kernel bạn chọn thành **`kernel`** (không có phần mở rộng).
-          2. Tắt hoàn toàn WSA: `WsaClient.exe /shutdown`.
-          3. Sao lưu file kernel cũ: `<Thư_mục_WSA>\Tools\kernel` thành `kernel.bak`.
-          4. Chép file `kernel` mới tải về vào thư mục `<Thư_mục_WSA>\Tools\`.
-          5. Khởi động lại WSA.
-          EOF
 
           FILES=()
           [ -f output/kernel-5.15-susfs ] && FILES+=("output/kernel-5.15-susfs")
@@ -179,12 +161,6 @@ jobs:
           [ -f output/kernel-5.15-ksunext-v3.4.2 ] && FILES+=("output/kernel-5.15-ksunext-v3.4.2")
           [ -f output/ksu_module_susfs.zip ] && FILES+=("output/ksu_module_susfs.zip")
 
-          gh release delete "$TAG_NAME" -y || true
-          git tag -d "$TAG_NAME" 2>/dev/null || true
-
-          gh release create "$TAG_NAME" \
-            --title "$RELEASE_TITLE" \
-            --notes-file release_body.md \
-            "${FILES[@]}"
+          gh release upload "$TAG_NAME" "${FILES[@]}" --clobber || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
