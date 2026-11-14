@@ -1,4 +1,4 @@
-name: Build WSA 5.15 Kernel with KernelSU-Next (susfs-x64-test)
+name: Build WSA 5.15 Kernel with Built-in SuSFS
 
 on:
   push:
@@ -6,10 +6,6 @@ on:
       - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
-      ksunext_branch:
-        description: 'KernelSU-Next Branch/Tag'
-        required: true
-        default: 'susfs-x64-test'
       wsa_tag:
         description: 'WSA Kernel Tag'
         required: true
@@ -28,7 +24,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             bc bison build-essential flex libelf-dev libssl-dev libncurses-dev \
-            dwarves cpio git curl clang-14 lld-14 llvm-14
+            dwarves cpio git curl clang-14 lld-14 llvm-14 patch zip
           sudo ln -sf /usr/bin/clang-14 /usr/bin/clang
           sudo ln -sf /usr/bin/ld.lld-14 /usr/bin/ld.lld
           sudo ln -sf /usr/bin/llvm-objdump-14 /usr/bin/llvm-objdump
@@ -37,121 +33,129 @@ jobs:
           sudo ln -sf /usr/bin/llvm-strip-14 /usr/bin/llvm-strip
           sudo ln -sf /usr/bin/llvm-objcopy-14 /usr/bin/llvm-objcopy
 
-      - name: Clone Microsoft WSA Linux Kernel
+      - name: Clone Microsoft WSA Linux Kernel & SuSFS4KSU
         run: |
           TAG="${{ github.event.inputs.wsa_tag || 'android-lts/latte-2/5.15.104.4' }}"
           git clone --depth=1 -b "$TAG" https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
+          git clone --depth=1 -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
 
-      - name: Setup Kernel Config & Integrate KernelSU-Next susfs branch
+      - name: Setup KernelSU & Apply Built-in SuSFS Patches
+        run: |
+          # 1. Setup KernelSU inside wsa-kernel
+          cd wsa-kernel
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s c680b548f3fe5c19f51e90ce97d6f0ef89594421
+
+          # 2. Copy SuSFS in-tree files into kernel
+          cp -r ../susfs4ksu/kernel_patches/fs/* fs/
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
+
+          # 3. Patch kernel with SuSFS VFS hooks
+          echo "=== Patching Kernel with 50_add_susfs_in_gki-android13-5.15.patch ==="
+          patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
+
+          # 4. Patch KernelSU with SuSFS integration
+          echo "=== Patching KernelSU with 10_enable_susfs_for_ksu.patch ==="
+          cd KernelSU
+          patch -p1 --forward < ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          cd ..
+
+      - name: Configure Kernel with SuSFS Built-in
         working-directory: wsa-kernel
         run: |
-          # 1. Nap cau hinh WSA x86_64 chinh thuc cua Microsoft
+          # Nap cau hinh WSA x86_64 cua Microsoft
           cp configs/wsa/config-wsa-x64 .config
 
-          # 2. Tich hop KernelSU-Next nhanh susfs-x64-test
-          BRANCH="${{ github.event.inputs.ksunext_branch || 'susfs-x64-test' }}"
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "$BRANCH"
-          
-          # Dam bao da o dung branch susfs-x64-test
-          if [ -d "KernelSU-Next" ]; then
-            cd KernelSU-Next
-            git checkout "$BRANCH" || true
-            cd ..
-          fi
-
-          # 3. Kich hoat KSU, syscall dispatcher patch tren x86_64 va overlayfs
+          # Kich hoat KSU & SuSFS Built-in features
           scripts/config --enable CONFIG_KSU
-          scripts/config --enable CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER
-          scripts/config --enable CONFIG_KPROBES
-          scripts/config --enable CONFIG_HAVE_KPROBES
-          scripts/config --enable CONFIG_KPROBE_EVENTS
+          scripts/config --enable CONFIG_KSU_SUSFS
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_PATH
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_KSTAT
+          scripts/config --enable CONFIG_KSU_SUSFS_SPOOF_UNAME
+          scripts/config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
+          scripts/config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          scripts/config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          scripts/config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_MAP
+          scripts/config --enable CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
           scripts/config --enable CONFIG_OVERLAY_FS
-          scripts/config --enable CONFIG_MODULES
+          scripts/config --enable CONFIG_TMPFS_XATTR
+          scripts/config --enable CONFIG_TMPFS_POSIX_ACL
           scripts/config --disable CONFIG_WERROR
-          scripts/config --set-str CONFIG_LOCALVERSION "-ksunext-susfs"
+          scripts/config --set-str CONFIG_LOCALVERSION "-wsa-susfs"
           sed -i 's/-dirty//' scripts/setlocalversion || true
 
           make LLVM=1 olddefconfig
-          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_KSU_X86|CONFIG_OVERLAY_FS" .config
+          grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS" .config
 
-      - name: Compile bzImage & susfs_guard_lkm.ko
+      - name: Compile bzImage (Kernel with Built-in SuSFS)
         working-directory: wsa-kernel
         run: |
           mkdir -p ../output
-
-          # 1. Bien dich Kernel bzImage cho WSA
-          echo "=== [1/2] Compiling Kernel bzImage ==="
           make LLVM=1 -j"$(nproc)" bzImage
           cp arch/x86/boot/bzImage ../output/kernel
-          echo "Kernel built successfully:"
+          echo "Built-in SuSFS Kernel created:"
           ls -lh ../output/kernel
 
-          # 2. Bien dich module SuSFS LKM (susfs_guard_lkm.ko) cho x86_64
-          echo "=== [2/2] Compiling SuSFS Guard LKM ==="
-          if [ -d "drivers/kernelsu/susfs" ]; then
-            cd drivers/kernelsu/susfs
-            make LLVM=1 -C "$GITHUB_WORKSPACE/wsa-kernel" M="$PWD" ARCH=x86_64 modules -j"$(nproc)" || true
-            if [ -f "susfs_guard_lkm.ko" ]; then
-              llvm-strip-14 -d susfs_guard_lkm.ko || llvm-strip -d susfs_guard_lkm.ko || true
-              cp susfs_guard_lkm.ko "$GITHUB_WORKSPACE/output/"
-              echo "susfs_guard_lkm.ko built successfully!"
-              ls -lh "$GITHUB_WORKSPACE/output/susfs_guard_lkm.ko"
-            else
-              echo "Notice: susfs_guard_lkm.ko was not produced by this make target."
-            fi
-            cd "$GITHUB_WORKSPACE/wsa-kernel"
+      - name: Package SuSFS Companion Module
+        run: |
+          cd susfs4ksu
+          ./build_ksu_module.sh || true
+          if [ -f ksu_module_susfs.zip ]; then
+            cp ksu_module_susfs.zip ../output/
+            echo "Packaged ksu_module_susfs.zip"
           fi
-
-      - name: Upload Kernel Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: WSA-5.15-KernelSU-Next-susfs-kernel
-          path: output/kernel
-          retention-days: 14
-
-      - name: Upload SuSFS LKM Artifact
-        if: hashFiles('output/susfs_guard_lkm.ko') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: WSA-5.15-susfs_guard_lkm
-          path: output/susfs_guard_lkm.ko
-          retention-days: 14
 
       - name: Download previous KernelSU-Next v3.4.2 kernel
         run: |
           gh run download -R hpbzareth/test -n WSA-5.15-KernelSU-Next-v3.4.2-kernel -D output/prev || true
           if [ -f output/prev/kernel ]; then
             cp output/prev/kernel output/kernel-ksunext-v3.4.2
-            echo "Downloaded previous kernel-ksunext-v3.4.2"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSA-5.15-KernelSU-Builtin-SuSFS-kernel
+          path: output/kernel
+          retention-days: 14
+
+      - name: Upload SuSFS Module Artifact
+        if: hashFiles('output/ksu_module_susfs.zip') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ksu_module_susfs
+          path: output/ksu_module_susfs.zip
+          retention-days: 14
+
       - name: Create GitHub Release
         run: |
-          TAG_NAME="v5.15.104-susfs-run${{ github.run_number }}"
-          RELEASE_TITLE="WSA Kernel 5.15 - KernelSU-Next (susfs-x64-test) Run #${{ github.run_number }}"
+          TAG_NAME="v5.15.104-susfs-builtin-run${{ github.run_number }}"
+          RELEASE_TITLE="WSA Kernel 5.15 - Built-in SuSFS Run #${{ github.run_number }}"
 
           cat << 'EOF' > release_body.md
-          ## WSA Linux Kernel 5.15 - KernelSU-Next (susfs-x64-test)
+          ## WSA Linux Kernel 5.15 - Built-in SuSFS (x86_64)
 
-          Bản build tự động cho **Windows Subsystem for Android (WSA)** x86_64.
+          Bản build **SuSFS Built-in hoàn toàn vào nhân (In-Tree)** cho **Windows Subsystem for Android (WSA)** 2407.x / 23xx.
 
           ### Artifacts đính kèm:
-          * **`kernel`**: Kernel Linux 5.15.104.4 tích hợp KernelSU-Next (nhánh `susfs-x64-test`). Dùng để thay vào `<Thư_mục_WSA>/Tools/kernel`.
-          * **`susfs_guard_lkm.ko`**: Module SuSFS Guard LKM x86_64.
-          * **`kernel-ksunext-v3.4.2`**: Bản build KernelSU-Next v3.4.2 chuẩn trước đó.
+          * **`kernel`**: Kernel Linux 5.15.104.4 tích hợp sẵn **KernelSU + SuSFS v2.4.0** trực tiếp trong nhân. Chỉ cần thay duy nhất file này vào `<Thư_mục_WSA>/Tools/kernel`.
+          * **`ksu_module_susfs.zip`**: Module bổ trợ SuSFS người dùng (tùy chọn).
+          * **`kernel-ksunext-v3.4.2`**: KernelSU-Next v3.4.2 chuẩn dự phòng.
 
           ### Hướng dẫn cài đặt nhanh:
           1. Tắt hoàn toàn WSA: `WsaClient.exe /shutdown`
           2. Sao lưu kernel gốc: Copy `Tools/kernel` thành `Tools/kernel.bak`
-          3. Chép file `kernel` tải từ Release này vào `Tools/kernel`
-          4. Khởi động lại WSA và kiểm tra root: `adb shell su -c id`
+          3. Chép file `kernel` tải từ Release này dán đè vào `Tools/kernel`
+          4. Khởi động lại WSA.
+          5. Mở KernelSU Manager để xem trạng thái SuSFS đã kích hoạt sẵn.
           EOF
 
           FILES=()
           [ -f output/kernel ] && FILES+=("output/kernel")
-          [ -f output/susfs_guard_lkm.ko ] && FILES+=("output/susfs_guard_lkm.ko")
+          [ -f output/ksu_module_susfs.zip ] && FILES+=("output/ksu_module_susfs.zip")
           [ -f output/kernel-ksunext-v3.4.2 ] && FILES+=("output/kernel-ksunext-v3.4.2")
 
           gh release create "$TAG_NAME" \
