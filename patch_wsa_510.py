@@ -127,4 +127,18 @@ for tp in throne_paths:
             f.write(c)
         print(f"[+] Enhanced {tp} for dual manager tracking")
 
+# 8. Align KERNEL_SU_UAPI_VERSION to 5 (for KernelSU-Next Manager v3.4.2 compatibility)
+for root, dirs, files in os.walk('.'):
+    for fname in files:
+        if fname == 'supercall.h':
+            fpath = os.path.join(root, fname)
+            with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                sc = f.read()
+            if 'KERNEL_SU_UAPI_VERSION = 6;' in sc:
+                sc = sc.replace('static const __u32 KERNEL_SU_UAPI_VERSION = 6;', 'static const __u32 KERNEL_SU_UAPI_VERSION = 5;')
+                sc = sc.replace('KERNEL_SU_UAPI_VERSION = 6;', 'KERNEL_SU_UAPI_VERSION = 5;')
+                with open(fpath, 'w', encoding='utf-8') as f:
+                    f.write(sc)
+                print(f"[+] Replaced KERNEL_SU_UAPI_VERSION to 5 in {fpath}")
+
 print("[✓] All WSA 5.10 compatibility fixes applied successfully!")
