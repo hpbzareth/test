@@ -61,4 +61,29 @@ for ap in ap_paths:
                 f.write(c)
             print(f"[+] Fixed {ap} TIF_SECCOMP on x86_64")
 
+# 6. Inject weak fallback implementations for preinit symbols in fs/exec.c
+if os.path.exists('fs/exec.c'):
+    with open('fs/exec.c', 'r', encoding='utf-8') as f:
+        c = f.read()
+    target_decl = "extern int ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user);\nextern int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv_user, void *envp_user,\n\t\t\t\tint *flags, int *retval, int *preinit_fd);"
+    weak_impl = """int __attribute__((weak)) ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user) {
+    return -EINVAL;
+}
+int __attribute__((weak)) ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr,
+                void *argv_user, void *envp_user,
+                int *flags, int *retval, int *preinit_fd) {
+    return 0;
+}"""
+    if "extern int ksu_setup_preinit_file" in c:
+        # replace the two extern declarations with weak implementations
+        import re
+        c = re.sub(
+            r'extern int ksu_setup_preinit_file\([^)]+\);\s*extern int ksu_preinit_handle_post_execveat\([^)]+\);',
+            weak_impl,
+            c
+        )
+        with open('fs/exec.c', 'w', encoding='utf-8') as f:
+            f.write(c)
+        print("[+] Fixed fs/exec.c with weak preinit fallback implementations")
+
 print("[✓] All WSA compatibility fixes applied successfully!")
