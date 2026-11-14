@@ -1,4 +1,4 @@
-name: Build WSA Kernel with KernelSU-Next
+name: Build WSA 5.15 Kernel with KernelSU-Next v3.4.2
 
 on:
   push:
@@ -6,72 +6,61 @@ on:
       - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
-      kernel_branch:
-        description: 'WSA Kernel Branch (để auto để lấy nhánh mặc định)'
+      ksunext_tag:
+        description: 'KernelSU-Next Tag'
         required: true
-        default: 'auto'
-      ksunext_branch:
-        description: 'KernelSU-Next Branch'
+        default: 'v3.4.2'
+      wsa_tag:
+        description: 'WSA Kernel Tag'
         required: true
-        default: 'next'
+        default: 'android-lts/latte-2/5.15.104.4'
 
 jobs:
   build-kernel:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential flex bison libssl-dev libelf-dev dwarves bc cpio python3 git curl clang lld llvm
+          sudo apt-get install -y -qq \
+            bc bison build-essential flex libelf-dev libssl-dev libncurses-dev \
+            dwarves cpio git curl clang-14 lld-14 llvm-14
+          sudo ln -sf /usr/bin/clang-14 /usr/bin/clang
+          sudo ln -sf /usr/bin/ld.lld-14 /usr/bin/ld.lld
+          sudo ln -sf /usr/bin/llvm-objdump-14 /usr/bin/llvm-objdump
+          sudo ln -sf /usr/bin/llvm-ar-14 /usr/bin/llvm-ar
+          sudo ln -sf /usr/bin/llvm-nm-14 /usr/bin/llvm-nm
+          sudo ln -sf /usr/bin/llvm-strip-14 /usr/bin/llvm-strip
+          sudo ln -sf /usr/bin/llvm-objcopy-14 /usr/bin/llvm-objcopy
 
       - name: Clone Microsoft WSA Linux Kernel
         run: |
-          BRANCH="${{ github.event.inputs.kernel_branch || 'auto' }}"
-          if [ "$BRANCH" = "auto" ]; then
-            git clone --depth=1 https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
-          else
-            git clone --depth=1 -b "$BRANCH" https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
-          fi
-          echo "Active branch: $(git -C wsa-kernel branch --show-current)"
+          TAG="${{ github.event.inputs.wsa_tag || 'android-lts/latte-2/5.15.104.4' }}"
+          git clone --depth=1 -b "$TAG" https://github.com/microsoft/WSA-Linux-Kernel.git wsa-kernel
 
-      - name: Setup Kernel Config & Integrate KernelSU-Next
+      - name: Setup Kernel Config & Integrate KernelSU-Next v3.4.2
         working-directory: wsa-kernel
         run: |
-          # Nạp base GKI defconfig của WSA
-          if [ -f "arch/x86/configs/gki_defconfig" ]; then
-            cp arch/x86/configs/gki_defconfig .config
-          else
-            cp arch/x86/configs/x86_64_defconfig .config
-          fi
+          # 1. Nap cau hinh WSA x86_64 chinh thuc cua Microsoft
+          cp configs/wsa/config-wsa-x64 .config
 
-          # Tự động merge thêm fragment config của WSA/Hyper-V nếu có trong repo
-          FRAGMENTS=$(find . -maxdepth 4 -type f \( -iname "*wsa*.config" -o -iname "*hyperv*.config" \) 2>/dev/null || true)
-          if [ -n "$FRAGMENTS" ]; then
-            echo "Merging fragments: $FRAGMENTS"
-            ./scripts/kconfig/merge_config.sh -m .config $FRAGMENTS
-          fi
+          # 2. Tich hop KernelSU-Next tag v3.4.2
+          KSU_TAG="${{ github.event.inputs.ksunext_tag || 'v3.4.2' }}"
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_TAG"
 
-          # Tích hợp KernelSU-Next
-          KSU_BRANCH="${{ github.event.inputs.ksunext_branch || 'next' }}"
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_BRANCH"
-
-          # Bật KSU, KPROBES, Hyper-V/DXGKRNL và tắt WERROR/LTO để tránh lỗi compile
-          scripts/config --disable CONFIG_WERROR
-          scripts/config --disable CONFIG_LTO_CLANG_FULL
-          scripts/config --disable CONFIG_LTO_CLANG_THIN
-          scripts/config --enable CONFIG_LTO_NONE
+          # 3. Kich hoat KSU va toi uu config
+          scripts/config --enable CONFIG_KSU
           scripts/config --enable CONFIG_KPROBES
           scripts/config --enable CONFIG_HAVE_KPROBES
           scripts/config --enable CONFIG_KPROBE_EVENTS
           scripts/config --enable CONFIG_OVERLAY_FS
-          scripts/config --enable CONFIG_HYPERV
-          scripts/config --enable CONFIG_HYPERV_VMBUS
-          scripts/config --enable CONFIG_DXGKRNL
-          scripts/config --enable CONFIG_KSU
+          scripts/config --disable CONFIG_WERROR
+          scripts/config --set-str CONFIG_LOCALVERSION "-ksunext"
+          sed -i 's/-dirty//' scripts/setlocalversion || true
 
           make LLVM=1 olddefconfig
-          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_DXGKRNL=" .config
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=" .config
 
       - name: Compile bzImage
         working-directory: wsa-kernel
@@ -79,10 +68,11 @@ jobs:
           make LLVM=1 -j"$(nproc)" bzImage
           mkdir -p ../output
           cp arch/x86/boot/bzImage ../output/kernel
+          ls -lh ../output/kernel
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WSA-KernelSU-Next-kernel
+          name: WSA-5.15-KernelSU-Next-v3.4.2-kernel
           path: output/kernel
           retention-days: 14
