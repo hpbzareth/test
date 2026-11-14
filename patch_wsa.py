@@ -49,4 +49,16 @@ for kp in ksud_paths:
                 f.write(c)
             print(f"[+] Fixed {kp} missing <linux/compat.h>")
 
+# 5. Fix TIF_SECCOMP on x86_64 in KernelSU policy/app_profile.c
+ap_paths = ['KernelSU/kernel/policy/app_profile.c', 'drivers/kernelsu/policy/app_profile.c']
+for ap in ap_paths:
+    if os.path.exists(ap):
+        with open(ap, 'r', encoding='utf-8') as f:
+            c = f.read()
+        if 'if (likely(test_thread_flag(TIF_SECCOMP)))' in c:
+            c = c.replace('if (likely(test_thread_flag(TIF_SECCOMP)))\n        disable_seccomp();', 'disable_seccomp();')
+            with open(ap, 'w', encoding='utf-8') as f:
+                f.write(c)
+            print(f"[+] Fixed {ap} TIF_SECCOMP on x86_64")
+
 print("[✓] All WSA compatibility fixes applied successfully!")
