@@ -30,7 +30,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             bc bison build-essential flex libelf-dev libssl-dev libncurses-dev \
-            dwarves cpio git curl clang-14 lld-14 llvm-14 patch zip python3
+            dwarves cpio git curl clang-14 lld-14 llvm-14 patch zip python3 rsync
           sudo ln -sf /usr/bin/clang-14 /usr/bin/clang
           sudo ln -sf /usr/bin/ld.lld-14 /usr/bin/ld.lld
           sudo ln -sf /usr/bin/llvm-objdump-14 /usr/bin/llvm-objdump
@@ -65,7 +65,7 @@ jobs:
           patch -p1 --forward < ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
           cd ..
 
-          # 5. Fix WSA-specific compatibility (header gates, fanotify, compat.h)
+          # 5. Fix WSA-specific compatibility (header gates, fanotify, compat.h, preinit)
           echo "=== Applying WSA compatibility fixes for SuSFS ==="
           python3 ../patch_wsa.py
 
@@ -91,11 +91,20 @@ jobs:
           scripts/config --enable CONFIG_OVERLAY_FS
           scripts/config --enable CONFIG_TMPFS_XATTR
           scripts/config --enable CONFIG_TMPFS_POSIX_ACL
+          scripts/config --enable CONFIG_HEADERS_INSTALL
           scripts/config --disable CONFIG_WERROR
           scripts/config --set-str CONFIG_LOCALVERSION "-wsa-susfs"
           sed -i 's/-dirty//' scripts/setlocalversion || true
 
           make LLVM=1 olddefconfig
+          make LLVM=1 headers_install || true
+          if [ ! -f usr/include/linux/unistd.h ]; then
+            echo "Copying UAPI headers to usr/include..."
+            mkdir -p usr/include
+            cp -r include/uapi/* usr/include/
+            cp -r arch/x86/include/uapi/* usr/include/
+          fi
+          ls -l usr/include/linux/unistd.h || true
           grep -E "CONFIG_KSU=|CONFIG_KSU_SUSFS" .config
 
       - name: Compile bzImage (Kernel with Built-in SuSFS)
