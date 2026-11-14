@@ -53,6 +53,7 @@ jobs:
           scripts/config --enable CONFIG_OVERLAY_FS
           scripts/config --enable CONFIG_TMPFS_XATTR
           scripts/config --enable CONFIG_TMPFS_POSIX_ACL
+          scripts/config --enable CONFIG_SECTION_MISMATCH_WARN_ONLY
           scripts/config --disable CONFIG_WERROR
           scripts/config --set-str CONFIG_LOCALVERSION "-wsa-ksunext-5.10"
           sed -i 's/-dirty//' scripts/setlocalversion || true
@@ -142,6 +143,7 @@ jobs:
           scripts/config --enable CONFIG_TMPFS_XATTR
           scripts/config --enable CONFIG_TMPFS_POSIX_ACL
           scripts/config --enable CONFIG_HEADERS_INSTALL
+          scripts/config --enable CONFIG_SECTION_MISMATCH_WARN_ONLY
           scripts/config --disable CONFIG_WERROR
           scripts/config --set-str CONFIG_LOCALVERSION "-wsa-susfs-5.10"
           sed -i 's/-dirty//' scripts/setlocalversion || true
