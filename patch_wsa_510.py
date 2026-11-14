@@ -15,18 +15,15 @@ if os.path.exists('fs/namespace.c'):
             f.write(c)
         print("[+] Fixed fs/namespace.c header")
 
-# 2. Fix fs/proc/task_mmu.c
+# 2. Fix fs/proc/task_mmu.c (VMA_PAD_START definition)
 if os.path.exists('fs/proc/task_mmu.c'):
     with open('fs/proc/task_mmu.c', 'r', encoding='utf-8') as f:
         c = f.read()
-    if 'linux/susfs_def.h' not in c:
-        c = c.replace(
-            '#include "internal.h"',
-            '#include "internal.h"\n#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif\n#ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) (vma->vm_end)\n#endif\n'
-        )
+    if 'VMA_PAD_START' not in c:
+        c = "#ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) (vma->vm_end)\n#endif\n" + c
         with open('fs/proc/task_mmu.c', 'w', encoding='utf-8') as f:
             f.write(c)
-        print("[+] Fixed fs/proc/task_mmu.c header & VMA_PAD_START")
+        print("[+] Defined VMA_PAD_START in fs/proc/task_mmu.c")
 
 # 3. Fix fs/notify/fdinfo.c
 if os.path.exists('fs/notify/fdinfo.c'):
