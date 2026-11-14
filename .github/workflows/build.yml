@@ -26,7 +26,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             bc bison build-essential flex libelf-dev libssl-dev libncurses-dev \
-            dwarves cpio git curl clang-14 lld-14 llvm-14 patch zip
+            dwarves cpio git curl clang-14 lld-14 llvm-14 patch zip python3
           sudo ln -sf /usr/bin/clang-14 /usr/bin/clang
           sudo ln -sf /usr/bin/ld.lld-14 /usr/bin/ld.lld
           sudo ln -sf /usr/bin/llvm-objdump-14 /usr/bin/llvm-objdump
@@ -55,14 +55,41 @@ jobs:
           echo "=== Patching Kernel with 50_add_susfs_in_gki-android13-5.15.patch ==="
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
 
-          # Fix fanotify_fdinfo function signature mismatch when CONFIG_FANOTIFY=y in WSA
-          sed -i -E 's/static void fanotify_fdinfo\(struct seq_file \*m, struct fsnotify_mark \*mark\)/static void fanotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark, struct file *file)/' fs/notify/fdinfo.c
-
           # 4. Patch KernelSU with SuSFS integration
           echo "=== Patching KernelSU with 10_enable_susfs_for_ksu.patch ==="
           cd KernelSU
           patch -p1 --forward < ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
           cd ..
+
+          # 5. Fix WSA-specific compatibility (header gates & fanotify)
+          echo "=== Applying WSA compatibility fixes for SuSFS ==="
+          python3 -c "
+# Fix fs/namespace.c rejected header
+with open('fs/namespace.c', 'r') as f:
+    c = f.read()
+if 'linux/susfs_def.h' not in c:
+    c = c.replace('#include \"internal.h\"', '#include \"internal.h\"\n#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n#define CL_COPY_MNT_NS BIT(25)\n#endif\n')
+    with open('fs/namespace.c', 'w') as f:
+        f.write(c)
+    print('Fixed fs/namespace.c')
+
+# Fix fs/proc/task_mmu.c rejected header & VMA_PAD_START
+with open('fs/proc/task_mmu.c', 'r') as f:
+    c = f.read()
+if 'linux/susfs_def.h' not in c:
+    c = c.replace('#include \"internal.h\"', '#include \"internal.h\"\n#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif\n#ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) (vma->vm_end)\n#endif\n')
+    with open('fs/proc/task_mmu.c', 'w') as f:
+        f.write(c)
+    print('Fixed fs/proc/task_mmu.c')
+
+# Fix fanotify_fdinfo signature in fs/notify/fdinfo.c
+with open('fs/notify/fdinfo.c', 'r') as f:
+    c = f.read()
+c = c.replace('static void fanotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)', 'static void fanotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark, struct file *file)')
+with open('fs/notify/fdinfo.c', 'w') as f:
+    f.write(c)
+print('Fixed fs/notify/fdinfo.c')
+"
 
       - name: Configure Kernel with SuSFS Built-in
         working-directory: wsa-kernel
