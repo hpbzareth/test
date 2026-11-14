@@ -19,7 +19,7 @@ if os.path.exists('fs/namespace.c'):
 if os.path.exists('fs/proc/task_mmu.c'):
     with open('fs/proc/task_mmu.c', 'r', encoding='utf-8') as f:
         c = f.read()
-    if 'VMA_PAD_START' not in c:
+    if '#define VMA_PAD_START' not in c:
         c = "#ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) (vma->vm_end)\n#endif\n" + c
         with open('fs/proc/task_mmu.c', 'w', encoding='utf-8') as f:
             f.write(c)
