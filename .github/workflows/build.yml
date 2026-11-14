@@ -55,6 +55,9 @@ jobs:
           echo "=== Patching Kernel with 50_add_susfs_in_gki-android13-5.15.patch ==="
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
 
+          # Fix fanotify_fdinfo function signature mismatch when CONFIG_FANOTIFY=y in WSA
+          sed -i -E 's/static void fanotify_fdinfo\(struct seq_file \*m, struct fsnotify_mark \*mark\)/static void fanotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark, struct file *file)/' fs/notify/fdinfo.c
+
           # 4. Patch KernelSU with SuSFS integration
           echo "=== Patching KernelSU with 10_enable_susfs_for_ksu.patch ==="
           cd KernelSU
