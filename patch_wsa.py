@@ -37,4 +37,16 @@ with open('fs/notify/fdinfo.c', 'w', encoding='utf-8') as f:
     f.write(c)
 print("[+] Fixed fs/notify/fdinfo.c fanotify signature")
 
+# 4. Fix KernelSU runtime/ksud.h missing <linux/compat.h>
+ksud_paths = ['KernelSU/kernel/runtime/ksud.h', 'drivers/kernelsu/runtime/ksud.h']
+for kp in ksud_paths:
+    if os.path.exists(kp):
+        with open(kp, 'r', encoding='utf-8') as f:
+            c = f.read()
+        if 'linux/compat.h' not in c:
+            c = '#include <linux/compat.h>\n' + c
+            with open(kp, 'w', encoding='utf-8') as f:
+                f.write(c)
+            print(f"[+] Fixed {kp} missing <linux/compat.h>")
+
 print("[✓] All WSA compatibility fixes applied successfully!")
