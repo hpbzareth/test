@@ -35,16 +35,23 @@ jobs:
       - name: Setup Kernel Config & Integrate KernelSU-Next
         working-directory: wsa-kernel
         run: |
-          if [ -f "Microsoft/config-wsa" ]; then
-            cp Microsoft/config-wsa .config
-          elif [ -f "arch/x86/configs/wsa_defconfig" ]; then
-            make LLVM=1 wsa_defconfig
+          if [ -f "Microsoft/config-wsa-x86_64" ]; then
+            cp Microsoft/config-wsa-x86_64 .config
           else
-            echo "Không tìm thấy file config WSA!" && exit 1
+            FOUND_CFG=$(find Microsoft arch/x86/configs -maxdepth 2 -type f -name "*wsa*x86*" 2>/dev/null | head -n 1)
+            if [ -n "$FOUND_CFG" ]; then
+              echo "Loaded config: $FOUND_CFG"
+              cp "$FOUND_CFG" .config
+            else
+              echo "Không tìm thấy config WSA. Danh sách file hiện có:"
+              ls -la Microsoft/ arch/x86/configs/ 2>/dev/null || true
+              exit 1
+            fi
           fi
 
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ github.event.inputs.ksunext_branch }}"
 
+          scripts/config --disable CONFIG_WERROR
           scripts/config --enable CONFIG_KPROBES
           scripts/config --enable CONFIG_HAVE_KPROBES
           scripts/config --enable CONFIG_KPROBE_EVENTS
