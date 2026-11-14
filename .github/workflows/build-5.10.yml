@@ -39,7 +39,7 @@ jobs:
       - name: Setup KernelSU-Next v3.4.2
         working-directory: wsa-kernel
         run: |
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.4.2
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.4.2
 
       - name: Configure Kernel 5.10
         working-directory: wsa-kernel
@@ -47,6 +47,9 @@ jobs:
           cp configs/wsa/config-wsa-5.10 .config
           scripts/config --enable CONFIG_KSU
           scripts/config --enable CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER
+          scripts/config --enable CONFIG_KPROBES
+          scripts/config --enable CONFIG_HAVE_KPROBES
+          scripts/config --enable CONFIG_KPROBE_EVENTS
           scripts/config --enable CONFIG_OVERLAY_FS
           scripts/config --enable CONFIG_TMPFS_XATTR
           scripts/config --enable CONFIG_TMPFS_POSIX_ACL
