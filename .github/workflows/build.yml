@@ -65,7 +65,7 @@ jobs:
           patch -p1 --forward < ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
           cd ..
 
-          # 5. Fix WSA-specific compatibility (header gates & fanotify)
+          # 5. Fix WSA-specific compatibility (header gates, fanotify, compat.h)
           echo "=== Applying WSA compatibility fixes for SuSFS ==="
           python3 ../patch_wsa.py
 
@@ -103,9 +103,10 @@ jobs:
         run: |
           mkdir -p ../output
           make LLVM=1 -j"$(nproc)" bzImage
+          cp arch/x86/boot/bzImage ../output/kernel-5.15-susfs
           cp arch/x86/boot/bzImage ../output/kernel
           echo "Built-in SuSFS Kernel created:"
-          ls -lh ../output/kernel
+          ls -lh ../output/kernel-5.15-susfs
 
       - name: Package SuSFS Companion Module
         run: |
@@ -118,9 +119,9 @@ jobs:
 
       - name: Download previous KernelSU-Next v3.4.2 kernel
         run: |
-          gh run download -R hpbzareth/test -n WSA-5.15-KernelSU-Next-v3.4.2-kernel -D output/prev || true
+          gh run download -R ${{ github.repository }} -n WSA-5.15-KernelSU-Next-v3.4.2-kernel -D output/prev || true
           if [ -f output/prev/kernel ]; then
-            cp output/prev/kernel output/kernel-ksunext-v3.4.2
+            cp output/prev/kernel output/kernel-5.15-ksunext-v3.4.2
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -140,33 +141,37 @@ jobs:
           path: output/ksu_module_susfs.zip
           retention-days: 14
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (Revision 1)
         run: |
-          TAG_NAME="v5.15.104-susfs-run${{ github.run_number }}"
-          RELEASE_TITLE="WSA Kernel 5.15 - Built-in SuSFS Run #${{ github.run_number }}"
+          TAG_NAME="r1"
+          RELEASE_TITLE="Revision 1"
 
           cat << 'EOF' > release_body.md
-          ## WSA Linux Kernel 5.15 - Built-in SuSFS (x86_64)
+          ## Windows Subsystem for Android (WSA) Custom Kernels - Revision 1
 
-          Bản build **SuSFS Built-in hoàn toàn vào nhân (In-Tree)** cho **Windows Subsystem for Android (WSA)** 2407.x / 23xx.
+          Bản phát hành chính thức các kernel tùy chỉnh cho **Windows Subsystem for Android (WSA)** (x86_64).
 
-          ### Artifacts đính kèm:
-          * **`kernel`**: Kernel Linux 5.15.104.4 tích hợp sẵn **KernelSU + SuSFS v2.4.0** trực tiếp trong nhân. Chỉ cần thay duy nhất file này vào `<Thư_mục_WSA>/Tools/kernel`.
-          * **`ksu_module_susfs.zip`**: Module bổ trợ SuSFS người dùng (tùy chọn).
-          * **`kernel-ksunext-v3.4.2`**: KernelSU-Next v3.4.2 chuẩn dự phòng.
+          ### 📦 Các bản Kernel bao gồm trong bản phát hành:
+          * **`kernel-5.15-susfs`** (hoặc file `kernel`): Kernel WSA Linux 5.15.104.4 tích hợp sẵn **KernelSU + Built-in SuSFS (v2.4.0)** trực tiếp trong nhân.
+          * **`kernel-5.15-ksunext-v3.4.2`**: Kernel WSA Linux 5.15.104.4 tích hợp **KernelSU-Next v3.4.2** chuẩn.
+          * **`ksu_module_susfs.zip`**: Module companion SuSFS cho người dùng.
 
-          ### Hướng dẫn cài đặt nhanh:
-          1. Tắt hoàn toàn WSA: `WsaClient.exe /shutdown`
-          2. Sao lưu kernel gốc: Copy `Tools/kernel` thành `Tools/kernel.bak`
-          3. Chép file `kernel` tải từ Release này dán đè vào `Tools/kernel`
-          4. Khởi động lại WSA.
-          5. Mở KernelSU Manager để xem trạng thái SuSFS đã kích hoạt sẵn.
+          ### 🚀 Hướng dẫn cài đặt nhanh:
+          1. Đổi tên kernel bạn chọn thành **`kernel`** (không có phần mở rộng).
+          2. Tắt hoàn toàn WSA: `WsaClient.exe /shutdown`.
+          3. Sao lưu file kernel cũ: `<Thư_mục_WSA>\Tools\kernel` thành `kernel.bak`.
+          4. Chép file `kernel` mới tải về vào thư mục `<Thư_mục_WSA>\Tools\`.
+          5. Khởi động lại WSA.
           EOF
 
           FILES=()
+          [ -f output/kernel-5.15-susfs ] && FILES+=("output/kernel-5.15-susfs")
           [ -f output/kernel ] && FILES+=("output/kernel")
+          [ -f output/kernel-5.15-ksunext-v3.4.2 ] && FILES+=("output/kernel-5.15-ksunext-v3.4.2")
           [ -f output/ksu_module_susfs.zip ] && FILES+=("output/ksu_module_susfs.zip")
-          [ -f output/kernel-ksunext-v3.4.2 ] && FILES+=("output/kernel-ksunext-v3.4.2")
+
+          gh release delete "$TAG_NAME" -y || true
+          git tag -d "$TAG_NAME" 2>/dev/null || true
 
           gh release create "$TAG_NAME" \
             --title "$RELEASE_TITLE" \
