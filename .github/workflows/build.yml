@@ -49,8 +49,9 @@ jobs:
           KSU_TAG="${{ github.event.inputs.ksunext_tag || 'v3.4.2' }}"
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_TAG"
 
-          # 3. Kich hoat KSU va toi uu config
+          # 3. Kich hoat KSU va x86 syscall dispatcher patch
           scripts/config --enable CONFIG_KSU
+          scripts/config --enable CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER
           scripts/config --enable CONFIG_KPROBES
           scripts/config --enable CONFIG_HAVE_KPROBES
           scripts/config --enable CONFIG_KPROBE_EVENTS
@@ -60,7 +61,7 @@ jobs:
           sed -i 's/-dirty//' scripts/setlocalversion || true
 
           make LLVM=1 olddefconfig
-          grep -E "CONFIG_KSU=|CONFIG_KPROBES=" .config
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_KSU_X86" .config
 
       - name: Compile bzImage
         working-directory: wsa-kernel
