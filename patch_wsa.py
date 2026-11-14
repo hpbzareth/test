@@ -1,4 +1,4 @@
-import os
+import os, re
 
 print("[+] Applying WSA compatibility fixes for SuSFS...")
 
@@ -65,7 +65,6 @@ for ap in ap_paths:
 if os.path.exists('fs/exec.c'):
     with open('fs/exec.c', 'r', encoding='utf-8') as f:
         c = f.read()
-    target_decl = "extern int ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user);\nextern int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv_user, void *envp_user,\n\t\t\t\tint *flags, int *retval, int *preinit_fd);"
     weak_impl = """int __attribute__((weak)) ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user) {
     return -EINVAL;
 }
@@ -75,8 +74,6 @@ int __attribute__((weak)) ksu_preinit_handle_post_execveat(int *fd, struct filen
     return 0;
 }"""
     if "extern int ksu_setup_preinit_file" in c:
-        # replace the two extern declarations with weak implementations
-        import re
         c = re.sub(
             r'extern int ksu_setup_preinit_file\([^)]+\);\s*extern int ksu_preinit_handle_post_execveat\([^)]+\);',
             weak_impl,
@@ -85,5 +82,49 @@ int __attribute__((weak)) ksu_preinit_handle_post_execveat(int *fd, struct filen
         with open('fs/exec.c', 'w', encoding='utf-8') as f:
             f.write(c)
         print("[+] Fixed fs/exec.c with weak preinit fallback implementations")
+
+# 7. Support KernelSU-Next Manager (com.rifsxd.ksunext)
+kbuild_paths = ['KernelSU/kernel/Kbuild', 'drivers/kernelsu/Kbuild']
+for kp in kbuild_paths:
+    if os.path.exists(kp):
+        with open(kp, 'r', encoding='utf-8') as f:
+            c = f.read()
+        c = c.replace('KSU_PACKAGE_NAME ?= me.weishu.kernelsu', 'KSU_PACKAGE_NAME ?= com.rifsxd.ksunext')
+        c = c.replace('KSU_EXPECTED_SIZE ?= 0x033b', 'KSU_EXPECTED_SIZE ?= 0x03e6')
+        c = c.replace('KSU_EXPECTED_HASH ?= c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6',
+                      'KSU_EXPECTED_HASH ?= 79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7')
+        with open(kp, 'w', encoding='utf-8') as f:
+            f.write(c)
+        print(f"[+] Configured {kp} for com.rifsxd.ksunext")
+
+apk_sign_paths = ['KernelSU/kernel/manager/apk_sign.c', 'drivers/kernelsu/manager/apk_sign.c']
+for ap in apk_sign_paths:
+    if os.path.exists(ap):
+        with open(ap, 'r', encoding='utf-8') as f:
+            c = f.read()
+        target = 'return check_v2_signature(path, EXPECTED_SIZE, EXPECTED_HASH);'
+        replacement = 'return check_v2_signature(path, EXPECTED_SIZE, EXPECTED_HASH) || check_v2_signature(path, 0x03e6, "79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7") || check_v2_signature(path, 0x033b, "c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6");'
+        if target in c:
+            c = c.replace(target, replacement)
+            with open(ap, 'w', encoding='utf-8') as f:
+                f.write(c)
+            print(f"[+] Enhanced {ap} for dual manager verification")
+
+throne_paths = ['KernelSU/kernel/manager/throne_tracker.c', 'drivers/kernelsu/manager/throne_tracker.c']
+for tp in throne_paths:
+    if os.path.exists(tp):
+        with open(tp, 'r', encoding='utf-8') as f:
+            c = f.read()
+        c = c.replace(
+            'strncmp(pkg, KSU_PACKAGE_NAME, sizeof(KSU_PACKAGE_NAME)) == 0',
+            '(strncmp(pkg, "com.rifsxd.ksunext", 18) == 0 || strncmp(pkg, "me.weishu.kernelsu", 17) == 0 || strncmp(pkg, KSU_PACKAGE_NAME, sizeof(KSU_PACKAGE_NAME)) == 0)'
+        )
+        c = c.replace(
+            'strcmp(np->package, KSU_PACKAGE_NAME) == 0',
+            '(strcmp(np->package, "com.rifsxd.ksunext") == 0 || strcmp(np->package, "me.weishu.kernelsu") == 0 || strcmp(np->package, KSU_PACKAGE_NAME) == 0)'
+        )
+        with open(tp, 'w', encoding='utf-8') as f:
+            f.write(c)
+        print(f"[+] Enhanced {tp} for dual manager tracking")
 
 print("[✓] All WSA compatibility fixes applied successfully!")
