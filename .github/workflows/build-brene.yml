@@ -4,18 +4,13 @@ on:
   push:
     branches:
       - brene
-    paths:
-      - '.github/workflows/build-brene.yml'
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-brene-module:
-    name: Build BRENE Module with x86_64 & arm64 SuSFS
+  build-brene:
     runs-on: ubuntu-22.04
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,15 +32,10 @@ jobs:
       - name: Compile ksu_susfs for arm64-v8a & x86_64
         run: |
           cd susfs4ksu/ksu_susfs
-          # Enable multi-arch ABI
           sed -i 's/APP_ABI := arm64-v8a/APP_ABI := arm64-v8a x86_64/' jni/Application.mk
-          cat jni/Application.mk
           ndk-build
-          echo "=== Built binaries ==="
-          ls -lh libs/arm64-v8a/ksu_susfs
-          ls -lh libs/x86_64/ksu_susfs
+          ls -lh libs/arm64-v8a/ksu_susfs libs/x86_64/ksu_susfs
           file libs/x86_64/ksu_susfs
-          file libs/arm64-v8a/ksu_susfs
 
       - name: Clone latest BRENE module
         run: |
@@ -54,62 +44,7 @@ jobs:
       - name: Patch BRENE for Universal Architecture support
         run: |
           cd brene-repo/module
-          
-          # 1. Copy compiled native binaries
-          mkdir -p tools
-          cp ../../susfs4ksu/ksu_susfs/libs/arm64-v8a/ksu_susfs tools/susfs_arm64
-          cp ../../susfs4ksu/ksu_susfs/libs/x86_64/ksu_susfs tools/susfs_x86_64
-          cp ../../susfs4ksu/ksu_susfs/libs/x86_64/ksu_susfs tools/susfs
-          chmod 755 tools/susfs*
-
-          # 2. Patch customize.sh for dual arch selection
-          python3 - << 'EOF'
-          with open('customize.sh', 'r', encoding='utf-8') as f:
-              c = f.read()
-
-          target = """if [[ "${ARCH}" != "arm64" ]]; then
-	abort '[❌] Only arm64 is supported!'
-fi"""
-
-          replacement = """echo "[i] Installing BRENE Universal for architecture: ${ARCH}"
-case "${ARCH}" in
-	arm64)
-		if [[ -f "${MODPATH}/tools/susfs_arm64" ]]; then
-			cp -f "${MODPATH}/tools/susfs_arm64" "${DEST_BIN_DIR}/susfs"
-		else
-			cp -f "${MODPATH}/tools/susfs" "${DEST_BIN_DIR}/susfs"
-		fi
-		;;
-	x64|x86_64)
-		if [[ -f "${MODPATH}/tools/susfs_x86_64" ]]; then
-			cp -f "${MODPATH}/tools/susfs_x86_64" "${DEST_BIN_DIR}/susfs"
-		else
-			cp -f "${MODPATH}/tools/susfs" "${DEST_BIN_DIR}/susfs"
-		fi
-		;;
-	*)
-		abort "[❌] Architecture ${ARCH} is not supported!"
-		;;
-esac"""
-
-          if target in c:
-              c = c.replace(target, replacement)
-          else:
-              # Fallback replace if whitespace differs
-              import re
-              c = re.sub(r'if\s*\[\[\s*"\$\{ARCH\}"\s*!=\s*"arm64"\s*\]\];.*?fi', replacement, c, flags=re.DOTALL)
-
-          # Avoid duplicate copy if present later
-          c = c.replace('cp -f "${MODPATH}/tools/susfs" "${DEST_BIN_DIR}"', '# Copied in arch selector')
-
-          with open('customize.sh', 'w', encoding='utf-8') as f:
-              f.write(c)
-          print("[+] Successfully patched customize.sh")
-          EOF
-
-          # 3. Update module.prop description to indicate Universal x86_64 / arm64
-          sed -i 's/name=BRENE/name=BRENE (Universal x86_64 & arm64)/' module.prop
-          cat module.prop
+          python3 ../../patch_brene.py
 
       - name: Package Universal BRENE Module
         run: |
