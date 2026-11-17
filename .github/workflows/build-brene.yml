@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - brene
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -50,18 +51,22 @@ jobs:
         run: |
           mkdir -p output
           cd brene-repo/module
+          VERSION=$(grep '^version=' module.prop | cut -d= -f2)
+          echo "BRENE_VERSION=${VERSION}" >> $GITHUB_ENV
           zip -r9 ../../output/BRENE-Universal-x86_64-arm64.zip ./*
-          ls -lh ../../output/BRENE-Universal-x86_64-arm64.zip
+          cp ../../output/BRENE-Universal-x86_64-arm64.zip "../../output/BRENE-Universal-${VERSION}-x86_64-arm64.zip"
+          ls -lh ../../output/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: BRENE-Universal-x86_64-arm64
-          path: output/BRENE-Universal-x86_64-arm64.zip
+          path: output/*.zip
           retention-days: 14
 
       - name: Upload to Release Revision 1
         run: |
           gh release upload r1 output/BRENE-Universal-x86_64-arm64.zip --clobber
+          gh release upload r1 output/BRENE-Universal-${{ env.BRENE_VERSION }}-x86_64-arm64.zip --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
